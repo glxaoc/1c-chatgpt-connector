@@ -1,0 +1,19 @@
+{
+  "name": "1c-chatgpt-connector",
+  "version": "1.6.0",
+  "description": "1С-коннектор для приложения ChatGPT (Codex): OData, только чтение, SSH-туннель",
+  "scripts": {
+    "test": "node tests/run-tests.mjs",
+    "build": "python build.py"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "ssh2": "^1.17.0",
+    "zod": "^4.6.5"
+  },
+  "type": "module",
+  "private": true
+}
