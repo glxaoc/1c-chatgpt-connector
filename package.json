@@ -1,6 +1,6 @@
 {
   "name": "1c-chatgpt-connector",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "1С-коннектор для приложения ChatGPT (Codex): OData, только чтение, SSH-туннель",
   "scripts": {
     "test": "node tests/run-tests.mjs",
