@@ -61,3 +61,31 @@ with zipfile.ZipFile(OUT, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
             full = os.path.join(root, f)
             z.write(full, os.path.relpath(full, os.path.dirname(STAGE)).replace(os.sep, '/'))
 print(OUT, round(os.path.getsize(OUT) / 1e6, 1), 'МБ')
+
+# ---------- Mac: та же программа, свой установщик ----------
+# Структура архива: 1c-connector/{install-mac.sh, check.mjs, server/index.js, package.json, node_modules}
+MAC_STAGE = os.path.join(HERE, 'stage', 'mac', '1c-connector')
+MAC_OUT = os.path.join(HERE, 'dist', '1c-connector-for-chatgpt-mac.zip')
+os.makedirs(os.path.join(MAC_STAGE, 'server'))
+shutil.copy(os.path.join(REPO, 'server', 'index.js'), os.path.join(MAC_STAGE, 'server', 'index.js'))
+shutil.copy(os.path.join(REPO, 'package.json'), MAC_STAGE)
+for name in ('install-mac.sh', 'check.mjs'):
+    data = open(os.path.join(HERE, 'mac', name), 'rb').read().replace(b'\r\n', b'\n')
+    open(os.path.join(MAC_STAGE, name), 'wb').write(data)
+shutil.copytree(os.path.join(STAGE, 'app', 'node_modules'), os.path.join(MAC_STAGE, 'node_modules'))
+pagent = os.path.join(MAC_STAGE, 'node_modules', 'ssh2', 'util', 'pagent.exe')
+if os.path.exists(pagent):
+    os.remove(pagent)
+if os.path.exists(MAC_OUT):
+    os.remove(MAC_OUT)
+with zipfile.ZipFile(MAC_OUT, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+    for root, _, files in os.walk(MAC_STAGE):
+        for f in files:
+            full = os.path.join(root, f)
+            info = zipfile.ZipInfo.from_file(full, os.path.relpath(full, os.path.dirname(MAC_STAGE)).replace(os.sep, '/'))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            if f == 'install-mac.sh':
+                info.external_attr = 0o100755 << 16
+            with open(full, 'rb') as fh:
+                z.writestr(info, fh.read())
+print(MAC_OUT, round(os.path.getsize(MAC_OUT) / 1e6, 1), 'МБ')
