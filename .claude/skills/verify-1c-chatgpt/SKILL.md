@@ -1,0 +1,114 @@
+---
+name: verify-1c-chatgpt
+description: Дымовой прогон 1С-коннектора для ChatGPT (Codex) так, как им пользуется человек. Сервер из рабочего дерева отвечает по MCP на подложной 1С (только GET, формат для Codex), ZIP собираются build.py, из ZIP проходят установка Windows (install.ps1 с самопроверкой, запуск по config.toml, удаление) и Mac (install-mac.sh в Git Bash), плюс все тесты репо. Без сети, без настоящих баз. Звать перед каждым коммитом в server/, app/, installer/, mac/, build.py, package.json, tests/ и перед выпуском версии.
+---
+
+# verify-1c-chatgpt
+
+Одна команда, около 65 с (замер 20.11.2026: 65, 64 и 64 с, три прогона подряд). Код 0 значит, что все проверки прошли.
+
+```
+bash .claude/skills/verify-1c-chatgpt/verify.sh all
+```
+
+Доказательства: `C:/Users/xaoc/1c-chatgpt-connector-out/verify-evidence/<дата-время>-<sha>/` (переменная `VERIFY_OUT`).
+Проверяется рабочее дерево, включая незакоммиченные правки; их список лежит в `meta.txt`.
+
+## Что настоящее и что подменено
+
+- Настоящее: `server/index.js` как MCP-сервер по stdio (тот же SDK, что у Codex), `build.py` без правок,
+  собранные ZIP, `installer/install.ps1` (PowerShell 5.1, DPAPI, robocopy, запись `config.toml`,
+  самопроверка `selftest.js`, удаление), `app/launcher.js` и `app/settings.js` (расшифровка пароля),
+  `mac/install-mac.sh` и `mac/check.mjs`, все 85 проверок `tests/suite.mjs`.
+- Подменено: 1С. Подложная OData живёт внутри `smoke.mjs` на `127.0.0.1` со случайным портом и пишет
+  каждый запрос в `requests.jsonl`. SSH в тестах репо подменён `tests/mockssh2.mjs`.
+- Изоляция: сервер получает окружение с нуля (только системные переменные, `HOME`, `APPDATA`,
+  `LOCALAPPDATA` во временной папке), поэтому настоящие `ODATA_*` из профиля Ивана не подхватятся.
+  Установка пишет только во временную папку прогона (`-InstallDir`, `-SettingsDir`, `-ConfigToml`),
+  настоящий `~/.codex/config.toml` и `%LOCALAPPDATA%\1c-connector` не трогаются.
+  `build.py` работает в копии рабочего дерева (node_modules через junction), `dist/` и `stage/` репо целы.
+  Порты у всех заглушек свободные, выданные системой, поэтому соседний прогон (например, тесты
+  редакции для Claude в `1c-connector/1c-connector`) не мешает.
+
+## Команды
+
+| Команда | Что делает | Время |
+|---|---|---|
+| `verify.sh all` | doctor, затем параллельно тесты + MCP-смоук + сборка; после сборки проверка ZIP и установка | ~65 с |
+| `verify.sh doctor` | только чтение: node 18+, `npm ls`, python, powershell, bash | ~4 с |
+| `verify.sh smoke` | только MCP-смоук сервера, для быстрых правок в `server/` | ~2 с |
+| `verify.sh tests` | только `tests/run-tests.mjs` | ~50 с |
+| `verify.sh pack` | только сборка и проверка ZIP с установкой | ~75 с |
+
+Перед первым прогоном в свежем worktree: `npm ci` (doctor скажет, если забыли).
+
+## Что доказывает smoke (`smoke.mjs`)
+
+Фаза `mcp`, 26 проверок:
+1. initialize: имя `1c-odata-connector`, версия равна `package.json`, есть `capabilities.tools`, в instructions
+   «только читает», «Никогда не проси пароли» и описание базы.
+2. tools/list: ровно 7 инструментов (`check_connection, contact_author, count, describe_object, list_objects,
+   query, what_else`), у каждого `readOnlyHint: true`, имя латиницей до 64 символов, `inputSchema.type=object`.
+   Полный список с описаниями в `tools.json`.
+3. Вызов каждого инструмента на подложной 1С с проверкой смысла ответа и формы (`content` из текстовых частей),
+   ошибки приходят как `isError`. Диалог в `transcript.json`.
+4. Только чтение на проводе: все запросы к 1С GET, с паролем и внутри публикации OData; `../` до 1С не доходит;
+   в коде сервера HTTP-метод только `GET`.
+5. Сырой stdio как у Codex: в stdout только JSON-RPC, protocolVersion согласован, сервер выходит сам, когда
+   клиент закрыл stdin.
+
+Фаза `pack`, 20 проверок: оба ZIP есть и разумного размера; состав Windows ZIP (файлы программы, зависимости,
+нет `settings.xml`, `config.toml`, `.env`, тестов, нативных модулей), `server/index.js` байт в байт как в репо,
+`install.ps1` с BOM и CRLF; установка `install.ps1` в папки прогона с самопроверкой «Связь с 1С работает»,
+один блок `one-c-odata`, чужие строки `config.toml` целы, пароль не лежит открытым текстом; запуск сервера по
+`command`/`args`/`env` из записанного `config.toml` (как это делает Codex); удаление `-Uninstall -Yes`.
+Mac ZIP: состав, `install-mac.sh` 0755 и без CR, установка через `install-mac.sh` с ответами в stdin,
+повторный запуск не плодит второй блок.
+
+Проверено, что smoke ловит поломки: подмена `readOnlyHint` на false, `console.log` в stdout и метод POST дали
+12 FAIL из 26 (20.11.2026).
+
+## Время
+
+Замер 20.11.2026, Windows 11, Node 24.12, Python 3.11: три прогона `verify.sh all` подряд, 131/131 проверок
+каждый (26 mcp + 20 pack + 85 тестов), 65, 64 и 64 с. Цифры каждого прогона
+в `meta.txt` (строка `ALL:`). Больше всего занимает `build.py` (~45-52 с, копирование
+node_modules и два ZIP), тесты репо (~50 с, из них ~25 с девять SSH-проверок) идут параллельно с ним.
+Цель «до минуты» не достигнута из-за сборки; для правок только в `server/` хватает `verify.sh smoke`
+(2 с) и `verify.sh tests`.
+
+## Доказательства
+
+`meta.txt` (ветка, sha, грязные файлы, итоговое время), `smoke-mcp.log`, `smoke-pack.log`, `result-mcp.json`,
+`result-pack.json` (каждая проверка PASS/FAIL), `tests.log`, `build.log`, `tools.json`, `transcript.json`,
+`requests.jsonl`, `install-windows.log`, `uninstall-windows.log`, `config-windows.toml`, `install-mac.log`,
+`config-mac.toml` (пароль стенда заменён). Пароль стенда фиктивный, настоящих данных в папке нет.
+
+## Уборка
+
+Временная папка прогона удаляется всегда (trap EXIT): сначала снимается junction `node_modules` через
+`os.rmdir` (содержимое репо не трогается), потом папка. Заглушки тестов гасит `run-tests.mjs`.
+Папки доказательств не удаляются; старые чистить руками.
+
+## Не покрыто (и почему)
+
+- Настоящее приложение ChatGPT (раздел Codex): что модель выбирает нужный инструмент, как выглядит ответ,
+  что подтверждение не спрашивается. Проверяется только формат MCP. Приёмка глазами по README остаётся.
+- Настоящая 1С: состав OData конкретной конфигурации, лицензии, https с самоподписанным сертификатом
+  (`ALLOW_SELF_SIGNED`) и настоящий SSH-сервер. Есть только заглушки.
+- Интерактивный ввод `install.ps1` (Read-Host, winget), запуск через `INSTALL.bat` двойным щелчком.
+  Проверяется автоматический режим с параметрами, тот же код после ввода.
+- Mac проверяется в Git Bash на Windows: `xattr`, Homebrew-пути Node, копирование в `~/1c-connector`
+  (скрипт запускается из своей папки, копирования нет) и сам macOS не проверены.
+- Тест «несуществующий домен» в `tests/suite.mjs` делает DNS-запрос к `no-such-host-1c.invalid` через
+  системный резолвер (зона `.invalid` зарезервирована, адреса нет). Других обращений наружу нет.
+- Выпуск релиза на GitHub (загрузка ZIP, текст релиза) не проверяется и не выполняется.
+
+## Helpers
+
+- `verify.sh`: оркестрация (Git Bash).
+- `smoke.mjs`: подложная 1С, фазы `mcp` и `pack`, код возврата 0/1.
+- `features/`: карта пользовательских путей, что в smoke и что нет.
+
+При новом инструменте, новом шаге установщика или смене формата ZIP: поправить `EXPECTED_TOOLS` или проверки
+в `smoke.mjs`, файл в `features/` и пункт в `REVIEW.md`.

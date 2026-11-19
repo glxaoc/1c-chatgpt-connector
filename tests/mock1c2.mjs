@@ -49,4 +49,4 @@ http.createServer((req,res)=>{
   if (p.startsWith("AccumulationRegister_ТоварыНаСкладах/Balance(")) return send(res,200,JSON.stringify({value:[{Номенклатура_Key:"1",ВНаличииBalance:12,"_p":p}]}));
   if (p==="AccumulationRegister_ТоварыНаСкладах/Balance()") return send(res,200,JSON.stringify({value:[{Номенклатура_Key:"1",ВНаличииBalance:12}]}));
   return send(res,404,JSON.stringify({"odata.error":{message:{value:`Не найден объект ${p}`}}}));
-}).listen(8766,"127.0.0.1",()=>console.error("mock2 up"));
+}).listen(Number(process.env.PORT||8766),"127.0.0.1",()=>console.error("mock2 up"));
