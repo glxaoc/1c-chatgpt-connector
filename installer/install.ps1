@@ -68,6 +68,22 @@ function Remove-OurBlock([string]$text) {
 function Write-NoBom([string]$path, [string]$text) {
   [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($false)))
 }
+# Файл настроек приложения бывает закрыт от записи (галочка «Только для чтения», антивирус, запущенное приложение).
+# Проверяем это до вопросов и копирования, чтобы человек не вводил пароль зря и не получил английскую ошибку .NET.
+$configLockedHelp = 'Полностью закройте приложение ChatGPT (в том числе значок у часов). Если не помогло, откройте свойства этого файла, снимите галочки «Только для чтения» и «Скрытый» и запустите установщик снова.'
+function Assert-ConfigWritable([string]$tail) {
+  if (-not (Test-Path -LiteralPath $ConfigToml)) { return }
+  try {
+    # запись идёт с пересозданием файла, а оно на скрытом файле отказывает, хотя открыть его на запись можно
+    if ((Get-Item -LiteralPath $ConfigToml -Force).Attributes -band [IO.FileAttributes]::Hidden) { throw 'hidden' }
+    $fs = [IO.File]::Open($ConfigToml, 'Open', 'ReadWrite', 'ReadWrite'); $fs.Close()
+  }
+  catch { throw "Не могу записать в файл настроек приложения ChatGPT: $ConfigToml. $configLockedHelp $tail" }
+}
+function Write-Config([string]$text) {
+  try { Write-NoBom $ConfigToml $text }
+  catch { throw "Не могу записать в файл настроек приложения ChatGPT: $ConfigToml. $configLockedHelp" }
+}
 function Update-Config([string]$nodePath, [string]$launcherPath) {
   $dir = Split-Path -Parent $ConfigToml
   if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
@@ -94,7 +110,7 @@ function Update-Config([string]$nodePath, [string]$launcherPath) {
     $lines += ('ONEC_SETTINGS = ' + (Toml-Str $settingsFile))
   }
   $new = $text + ($lines -join $nl) + $nl
-  Write-NoBom $ConfigToml $new
+  Write-Config $new
 }
 
 try {
@@ -106,9 +122,10 @@ try {
       if ((Read-Host 'Удалить коннектор и сохранённые пароли? Введите YES и Enter') -ne 'YES') { Say 'Отменено, ничего не удалено.'; exit 0 }
     }
     Step 'Удаляю 1С-коннектор'
+    Assert-ConfigWritable 'Пока ничего не удалено.'
     if (Test-Path $ConfigToml) {
       $t = [IO.File]::ReadAllText($ConfigToml, [Text.Encoding]::UTF8)
-      Write-NoBom $ConfigToml (Remove-OurBlock $t)
+      Write-Config (Remove-OurBlock $t)
       Say 'Запись удалена из настроек приложения.'
     }
     Assert-OwnDir $InstallDir
@@ -122,6 +139,8 @@ try {
   Write-Host ''
   Say '1С-коннектор для приложения ChatGPT (Codex)' 'White'
   Say 'Коннектор только читает данные. Изменить что-то в 1С через него нельзя.'
+
+  Assert-ConfigWritable 'Пока ничего не установлено.'
 
   # ---------- Node.js ----------
   Step '[1/5] Проверяю Node.js'
@@ -146,7 +165,11 @@ try {
   $pwEnc = ''; $sshPwEnc = ''
   if (-not $isAuto) {
     Say 'Адрес, логин и пароль пришлёт тот, кто обслуживает вашу 1С. Пользователь должен быть только на чтение.'
-    $ODataUrl = Read-Host 'Адрес OData (например http://server/base/odata/standard.odata/)'
+    $ODataUrl = ''
+    while (-not $ODataUrl) {
+      $ODataUrl = "$(Read-Host 'Адрес OData (например http://server/base/odata/standard.odata/)')".Trim()
+      if (-not $ODataUrl) { Say 'Без адреса подключить 1С нельзя. Введите адрес или закройте окно: пока ничего не установлено.' 'Yellow' }
+    }
     $ODataUser = Read-Host 'Логин 1С'
     $pwEnc = Encrypt-Secure (Read-Host 'Пароль 1С (при вводе не показывается)' -AsSecureString)
     $Description = Read-Host 'Описание базы одной фразой, например «УТ 11, оптовая торговля» (Enter = пропустить)'
