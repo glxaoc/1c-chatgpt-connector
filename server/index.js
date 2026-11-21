@@ -17,7 +17,7 @@ import crypto from "node:crypto";
 import ssh2 from "ssh2";
 const { Client: SshClient } = ssh2;
 
-const VERSION = "1.7.1";
+const VERSION = "1.7.2";
 const EDITION = "chatgpt";
 const EDITION_NAME = "ChatGPT";
 // Ссылки автора. Канал только именной пригласительной ссылкой под источник, чтобы видеть, откуда пришли подписчики.
