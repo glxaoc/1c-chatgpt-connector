@@ -50,7 +50,19 @@ for rel in ('installer/install.ps1', 'README.txt'):
     open(p, 'wb').write(data.replace(b'\n', b'\r\n'))
 for rel in ('INSTALL.bat', 'installer/UNINSTALL.bat'):
     p = os.path.join(STAGE, *rel.split('/'))
-    open(p, 'wb').write(open(p, 'rb').read().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))
+    # сначала читаем, потом открываем на запись: open(p, 'wb') обнуляет файл сразу при открытии
+    with open(p, 'rb') as fh:
+        data = fh.read().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+    with open(p, 'wb') as fh:
+        fh.write(data)
+
+# пустой установщик в архиве хуже упавшей сборки: проверяем до упаковки
+for rel in ('INSTALL.bat', 'README.txt', 'installer/install.ps1', 'installer/UNINSTALL.bat'):
+    p = os.path.join(STAGE, *rel.split('/'))
+    if os.path.getsize(p) == 0:
+        raise SystemExit('Пустой файл в сборке: ' + rel)
+if b'install.ps1' not in open(os.path.join(STAGE, 'INSTALL.bat'), 'rb').read():
+    raise SystemExit('INSTALL.bat не запускает install.ps1')
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 if os.path.exists(OUT):
