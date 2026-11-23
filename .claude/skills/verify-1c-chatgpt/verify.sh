@@ -5,6 +5,7 @@
 #   verify.sh doctor   # только чтение: node, зависимости, python, powershell, bash
 #   verify.sh tests    # только существующие тесты (tests/run-tests.mjs, свободные порты)
 #   verify.sh smoke    # только MCP-смоук сервера из рабочего дерева (секунды)
+#   verify.sh props    # тесты на правила (tests/props.mjs --quick) и сравнение с редакцией для Claude (tests/differential.mjs)
 #   verify.sh pack     # только сборка ZIP во временной копии + проверка архивов и установка Windows/Mac
 #
 # Доказательства: $VERIFY_OUT/<дата-время>-<sha>/ (по умолчанию C:/Users/xaoc/1c-chatgpt-connector-out/verify-evidence).
@@ -78,6 +79,23 @@ summary_tests() { # печатает итог тестов, код 0/1
 }
 
 cmd_tests() { new_run; local rc=0; run_tests "$RUN/tests.log" || rc=1; summary_tests "$RUN/tests.log" || rc=1; echo "доказательства: $RUN"; return $rc; }
+
+# Тесты на правила (fast-check, короткий режим) и сравнение с редакцией для Claude (соседний репозиторий 1c-connector
+# или DIFF_OTHER_REPO). Если соседа нет, сравнение пишет «пропущено», это видно в итоге.
+run_props() { # $1 = папка доказательств; печатает итог, код 0/1
+  local rc=0
+  (cd "$REPO" && node tests/props.mjs --quick) > "$1/props.log" 2>&1 || rc=1
+  (cd "$REPO" && node tests/differential.mjs) > "$1/differential.log" 2>&1 || rc=1
+  # сравнение без второй редакции ничего не доказывает: «пропущено» считаем провалом, если не разрешили явно
+  if grep -aq '^СРАВНЕНИЕ: пропущено' "$1/differential.log" && [ "${DIFF_ALLOW_SKIP:-}" != 1 ]; then
+    echo "FAIL: сравнение редакций пропущено, второй репозиторий не найден. Задайте DIFF_OTHER_REPO=<путь к 1c-connector> (или DIFF_ALLOW_SKIP=1)"; rc=1
+  fi
+  grep -a -h '^✘' -A4 "$1/props.log" "$1/differential.log"
+  grep -a '^Сравнение:' "$1/differential.log" | tail -1
+  echo "props: $(grep -a '^СВОЙСТВА:' "$1/props.log" | tail -1); $(grep -a '^СРАВНЕНИЕ:' "$1/differential.log" | tail -1)"
+  return $rc
+}
+cmd_props() { new_run; local rc=0; run_props "$RUN" || rc=1; echo "доказательства: $RUN"; return $rc; }
 cmd_smoke() { new_run; node "$SMOKE" mcp --out "$RUN"; local rc=$?; echo "доказательства: $RUN"; return $rc; }
 cmd_pack() {
   new_run; local rc=0
@@ -87,10 +105,11 @@ cmd_pack() {
 }
 
 cmd_all() {
-  local t0=$SECONDS rc=0 bt_pid tests_pid
+  local t0=$SECONDS rc=0 bt_pid tests_pid props_pid
   cmd_doctor || return 1
   new_run
   run_tests "$RUN/tests.log" & tests_pid=$!
+  run_props "$RUN" > "$RUN/props.summary" 2>&1 & props_pid=$!
   build_mirror "$RUN/build.log" & bt_pid=$!
   node "$SMOKE" mcp --out "$RUN" > "$RUN/smoke-mcp.log" 2>&1 || rc=1
   tail -1 "$RUN/smoke-mcp.log"; grep -a '^FAIL' "$RUN/smoke-mcp.log"
@@ -103,6 +122,8 @@ cmd_all() {
   fi
   wait "$tests_pid"
   summary_tests "$RUN/tests.log" || rc=1
+  wait "$props_pid" || rc=1
+  cat "$RUN/props.summary"
   echo "доказательства: $RUN"
   echo "ALL: $((SECONDS - t0)) с, rc=$rc"
   echo "ALL: $((SECONDS - t0)) с, rc=$rc" >> "$RUN/meta.txt"
@@ -110,6 +131,6 @@ cmd_all() {
 }
 
 case "${1:-all}" in
-  all|doctor|tests|smoke|pack) "cmd_${1:-all}" ;;
-  *) echo "usage: $0 {all|doctor|tests|smoke|pack}"; exit 2 ;;
+  all|doctor|tests|smoke|pack|props) "cmd_${1:-all}" ;;
+  *) echo "usage: $0 {all|doctor|tests|smoke|pack|props}"; exit 2 ;;
 esac

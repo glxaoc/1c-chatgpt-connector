@@ -31,8 +31,9 @@ shutil.copy(os.path.join(REPO, 'server', 'index.js'), os.path.join(STAGE, 'app',
 shutil.copy(os.path.join(REPO, 'package.json'), os.path.join(STAGE, 'app', 'package.json'))
 shutil.copytree(os.path.join(REPO, 'node_modules'), os.path.join(STAGE, 'app', 'node_modules'))
 
-# ssh2 работает на чистом JS, собранные под одну ОС нативные модули не нужны
-for d in ('cpu-features', 'nan', os.path.join('ssh2', 'lib', 'protocol', 'crypto', 'build')):
+# ssh2 работает на чистом JS, собранные под одну ОС нативные модули не нужны;
+# fast-check и pure-rand: dev-зависимости тестов (tests/props.mjs), пользователю не нужны
+for d in ('cpu-features', 'nan', os.path.join('ssh2', 'lib', 'protocol', 'crypto', 'build'), 'fast-check', 'pure-rand'):
     shutil.rmtree(os.path.join(STAGE, 'app', 'node_modules', d), ignore_errors=True)
 for root, dirs, _ in os.walk(os.path.join(STAGE, 'app', 'node_modules')):
     for d in list(dirs):
