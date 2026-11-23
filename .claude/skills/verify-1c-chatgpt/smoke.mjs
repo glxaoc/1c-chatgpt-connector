@@ -213,6 +213,8 @@ async function unzip(zip, dest) {
 }
 const FORBIDDEN = /(^|\/)(settings\.xml|config\.toml|\.env(\..*)?|[^/]*\.bak-1c|hostkey[^/]*|tests?|__tests__|cpu-features|nan)(\/|$)/;
 
+// dev-зависимости (тесты, fast-check и подобные) по package-lock: в пакет для пользователей они попадать не должны
+const DEV_PKGS = Object.entries(JSON.parse(fs.readFileSync(path.join(REPO, "package-lock.json"), "utf8")).packages || {}).filter(([k, v]) => k && v.dev).map(([k]) => k + "/");
 async function phasePack() {
   const DIST = arg("dist"), WORK = arg("work");
   const winZip = path.join(DIST, "1c-connector-for-chatgpt.zip"), macZip = path.join(DIST, "1c-connector-for-chatgpt-mac.zip");
@@ -229,6 +231,8 @@ async function phasePack() {
   check("Windows ZIP: все файлы программы и зависимости на месте", missing.length === 0, missing.join(", "));
   const forb = [...wl.keys()].filter((f) => FORBIDDEN.test(f));
   check("Windows ZIP: нет настроек, паролей, тестов и нативных модулей", forb.length === 0, forb.slice(0, 5).join(", "));
+  const wdev = [...wl.keys()].filter((f) => DEV_PKGS.some((d) => f.startsWith(R + "app/" + d)));
+  check(`Windows ZIP: без dev-зависимостей (${DEV_PKGS.length} по package-lock)`, DEV_PKGS.length > 0 && wdev.length === 0, wdev.slice(0, 5).join(", ") || "в package-lock нет dev-пакетов, проверка ничего не проверяет");
   check("Windows ZIP: server/index.js совпадает с репо байт в байт", fs.readFileSync(path.join(W, R, "app/server/index.js")).equals(SERVER_SRC), "отличается");
   const ps1 = fs.readFileSync(path.join(W, R, "installer/install.ps1"));
   const crlfOnly = (b) => !/(^|[^\r])\n/.test(b.toString("latin1"));
@@ -288,6 +292,8 @@ async function phasePack() {
   check("Mac ZIP: install-mac.sh и check.mjs без CR", !fs.readFileSync(path.join(M, MR, "install-mac.sh")).includes(13) && !fs.readFileSync(path.join(M, MR, "check.mjs")).includes(13), "есть CR");
   const mforb = [...ml.keys()].filter((f) => FORBIDDEN.test(f) || f.endsWith("pagent.exe"));
   check("Mac ZIP: нет настроек, тестов, pagent.exe", mforb.length === 0, mforb.slice(0, 5).join(", "));
+  const mdev = [...ml.keys()].filter((f) => DEV_PKGS.some((d) => f.startsWith(MR + d)));
+  check(`Mac ZIP: без dev-зависимостей (${DEV_PKGS.length} по package-lock)`, DEV_PKGS.length > 0 && mdev.length === 0, mdev.slice(0, 5).join(", ") || "в package-lock нет dev-пакетов, проверка ничего не проверяет");
   check("Mac ZIP: server/index.js совпадает с репо", fs.readFileSync(path.join(M, MR, "server/index.js")).equals(SERVER_SRC), "отличается");
 
   const bash = process.env.VERIFY_BASH;
